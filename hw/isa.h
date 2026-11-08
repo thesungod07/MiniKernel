@@ -24,5 +24,10 @@ enum opcodes
     OP_COUNT
 };
 
+#define ENC(op, ra, imm) \
+    ((((uint32_t)(op)) << 24) | \
+     (((uint32_t)(ra) & 0xFF)) << 16) | \
+     ((uint32_t)((imm) & 0xFFFF))
+
 #endif
 
