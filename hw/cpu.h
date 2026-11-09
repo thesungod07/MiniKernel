@@ -48,4 +48,9 @@ typedef struct cpu
     bool trace;
 } cpu_t;
 
+void cpu_init(cpu_t *ptr);
+void cpu_raise(cpu_t *ptr, int vec);
+bool cpu_step(cpu_t *ptr);
+void cpu_run(cpu_t *ptr, uint64_t max_cycles);
+
 #endif
