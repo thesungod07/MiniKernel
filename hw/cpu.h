@@ -32,6 +32,6 @@ typedef struct
     bool int_enabled;
     bool halted;
     uint32_t ram[RAM_WORDS];
-}
+} cpu_t;
 
 #endif
