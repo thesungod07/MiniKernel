@@ -14,6 +14,11 @@ void cpu_raise(cpu_t *ptr, int vec)
     ptr->pending |= (1u << vec);
 }
 
+static bool is_privileged(uint32_t op)
+{
+    return (op == OP_HLT || op == OP_CLI || op == OP_STI);
+}
+
 bool cpu_step(cpu_t *ptr)
 {
     if (ptr->halted == true)
@@ -24,13 +29,13 @@ bool cpu_step(cpu_t *ptr)
     if (ptr->pc >= RAM_WORDS)
     {
         cpu_raise(ptr, VEC_MEM_FAULT);
-        ptr->cycles += 1;   /* count it, so cpu_run can't loop forever */
+        ptr->cycles += 1;
         return true;
     }
 
-    uint32_t old_pc = ptr->pc;              /* address of this instruction */
+    uint32_t old_pc = ptr->pc;
     uint32_t local = ptr->ram[ptr->pc];
-    ptr->pc += 1;                           /* pc now points at the NEXT instruction */
+    ptr->pc += 1;
 
     uint32_t op = local >> 24;
     uint32_t ra = (local >> 16) & 0xFF;
@@ -39,8 +44,7 @@ bool cpu_step(cpu_t *ptr)
 
     if (ptr->trace == true)
     {
-        printf("pc = %u, word = 0x%08x, op = %u, ra = %u, imm = %u, rb = %u\n",
-               old_pc, local, op, ra, imm, rb);
+        printf("pc = %u, word = 0x%08x, op = %u, ra = %u, imm = %u, rb = %u\n", old_pc, local, op, ra, imm, rb);
     }
 
     ptr->cycles += 1;
@@ -48,6 +52,10 @@ bool cpu_step(cpu_t *ptr)
     if (op >= OP_COUNT)
     {
         cpu_raise(ptr, VEC_ILLEGAL);
+    }
+    else if (is_privileged(op) && ptr->mode == MODE_USER)
+    {
+        cpu_raise(ptr, VEC_PRIV_FAULT);
     }
     else
     {
@@ -110,15 +118,19 @@ bool cpu_step(cpu_t *ptr)
                 ptr->ram[imm] = ptr->reg[ra];
                 break;
 
-            case OP_SYSCALL:    /* later: trap into the kernel */
-                break;
-
             case OP_HLT:
                 ptr->halted = true;
                 break;
 
-            case OP_CLI:        /* later: privileged */
+            case OP_SYSCALL:
+                cpu_raise(ptr, VEC_SYSCALL);
+                break;
+
+            case OP_CLI:
+                ptr->int_enabled = false;
+                break;
             case OP_STI:
+                ptr->int_enabled = true;
                 break;
         }
     }
