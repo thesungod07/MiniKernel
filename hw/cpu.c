@@ -171,6 +171,17 @@ bool cpu_step(cpu_t *ptr)
         }
     }
 
+    if (ptr->timer_period != 0)
+    {
+        ptr->timer_count++;
+
+        if (ptr->timer_count == ptr->timer_period)
+        {
+            ptr->timer_count = 0;
+            cpu_raise(ptr, VEC_TIMER);
+        }
+    }
+
     dispatch(ptr);
 
     return true;
