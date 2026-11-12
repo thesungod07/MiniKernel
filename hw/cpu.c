@@ -19,6 +19,27 @@ static bool is_privileged(uint32_t op)
     return (op == OP_HLT || op == OP_CLI || op == OP_STI);
 }
 
+static void dispatch(cpu_t *ptr)
+{
+    for (int v = 0; v < NVECTORS; v++)
+    {
+        if (!(ptr->pending & (1u << v))) { continue; }
+        
+        ptr->pending &= ~(1u << v);
+        ptr->irq_count[v]++;
+
+        if (ptr->ivt[v] == NULL)
+        {
+            fprintf(stderr, "[hw] no handler for vector %d: double fault, CPU stopped\n", v);
+            ptr->halted = true;
+            return;
+        }
+
+        ptr->ivt[v](ptr, v);
+        return;
+    }
+}
+
 bool cpu_step(cpu_t *ptr)
 {
     if (ptr->halted == true)
@@ -29,6 +50,7 @@ bool cpu_step(cpu_t *ptr)
     if (ptr->pc >= RAM_WORDS)
     {
         cpu_raise(ptr, VEC_MEM_FAULT);
+        dispatch(ptr);
         ptr->cycles += 1;
         return true;
     }
@@ -134,6 +156,8 @@ bool cpu_step(cpu_t *ptr)
                 break;
         }
     }
+
+    dispatch(ptr);
 
     return true;
 }
