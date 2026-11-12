@@ -23,6 +23,8 @@ static void dispatch(cpu_t *ptr)
 {
     for (int v = 0; v < NVECTORS; v++)
     {
+        if (v == VEC_TIMER && ptr->int_enabled == false) { continue; }
+
         if (!(ptr->pending & (1u << v))) { continue; }
         
         ptr->pending &= ~(1u << v);
@@ -35,7 +37,19 @@ static void dispatch(cpu_t *ptr)
             return;
         }
 
+        ptr->saved_pc = ptr->pc;
+        ptr->saved_mode = ptr->mode;
+        ptr->saved_int = ptr->int_enabled;
+
+        ptr->mode = MODE_KERNEL;
+        ptr->int_enabled = false;
+
         ptr->ivt[v](ptr, v);
+
+        ptr->pc = ptr->saved_pc;
+        ptr->mode = ptr->saved_mode;
+        ptr->int_enabled = ptr->saved_int;
+
         return;
     }
 }
