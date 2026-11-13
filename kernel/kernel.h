@@ -14,6 +14,21 @@ enum syscall
     SYS_WRITE
 };
 
+typedef struct
+{
+    int timer_ticks;
+    int syscalls;
+    int priv_faults;
+    int illegal_faults;
+    int mem_faults;
+    int exited;
+    int killed;
+    int verbose;
+    uint32_t last_write;
+} kstate_t;
+
+extern kstate_t ks;
+
 void kernel_install_handlers(cpu_t *c);
 int boot_system(cpu_t *c, const uint32_t *image, size_t nwords);
 
