@@ -46,6 +46,8 @@ typedef struct cpu
     uint64_t cycles;
     uint64_t irq_count[NVECTORS];
     bool trace;
+    uint32_t base;
+    uint32_t limit;
 } cpu_t;
 
 void cpu_init(cpu_t *ptr);

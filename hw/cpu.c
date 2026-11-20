@@ -54,14 +54,40 @@ static void dispatch(cpu_t *ptr)
     }
 }
 
+static bool translate(const cpu_t *c, uint32_t logical, uint32_t *physical)
+{
+    if (c->mode == MODE_KERNEL)
+    {
+        if (logical < RAM_WORDS)
+        {
+            *physical = logical;
+            return true;
+        }
+
+        return false;
+    }
+    else
+    {
+        if (logical < c->limit && (c->base + logical) < RAM_WORDS)
+        {
+            *physical = c->base + logical;
+            return true;
+        }
+
+        return false;
+    }
+}
+
 bool cpu_step(cpu_t *ptr)
 {
+    uint32_t phys;
+
     if (ptr->halted == true)
     {
         return false;
     }
 
-    if (ptr->pc >= RAM_WORDS)
+    if (!translate(ptr, ptr->pc, &phys))
     {
         cpu_raise(ptr, VEC_MEM_FAULT);
         dispatch(ptr);
@@ -70,7 +96,7 @@ bool cpu_step(cpu_t *ptr)
     }
 
     uint32_t old_pc = ptr->pc;
-    uint32_t local = ptr->ram[ptr->pc];
+    uint32_t local = ptr->ram[phys];
     ptr->pc += 1;
 
     uint32_t op = local >> 24;
@@ -144,14 +170,14 @@ bool cpu_step(cpu_t *ptr)
 
             case OP_LD:
                 if (ra >= NREGS) { cpu_raise(ptr, VEC_ILLEGAL); break; }
-                if (imm >= RAM_WORDS) { cpu_raise(ptr, VEC_MEM_FAULT); break; }
-                ptr->reg[ra] = ptr->ram[imm];
+                if (!translate(ptr, imm, &phys)) { cpu_raise(ptr, VEC_MEM_FAULT); break; }
+                ptr->reg[ra] = ptr->ram[phys];
                 break;
 
             case OP_ST:
                 if (ra >= NREGS) { cpu_raise(ptr, VEC_ILLEGAL); break; }
-                if (imm >= RAM_WORDS) { cpu_raise(ptr, VEC_MEM_FAULT); break; }
-                ptr->ram[imm] = ptr->reg[ra];
+                if (!translate(ptr, imm, &phys)) { cpu_raise(ptr, VEC_MEM_FAULT); break; }
+                ptr->ram[phys] = ptr->reg[ra];
                 break;
 
             case OP_HLT:
