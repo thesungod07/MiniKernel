@@ -40,6 +40,10 @@ typedef struct
 } pcb_t;
 
 extern pcb_t proc_table[MAX_PROCS];
+extern pcb_t *current_proc;
+void context_save(cpu_t *c, pcb_t *p);
+void context_load(cpu_t *c, pcb_t *p);
+void context_switch(cpu_t *c, pcb_t *to);
 
 void proc_init(void);
 int proc_create(cpu_t *c, const uint32_t *image, size_t nwords, int priority, uint64_t burst);

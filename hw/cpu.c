@@ -21,8 +21,10 @@ static bool is_privileged(uint32_t op)
 
 static void dispatch(cpu_t *ptr)
 {
-    for (int v = 0; v < NVECTORS; v++)
+    for (int k = 1; k <= NVECTORS; k++)
     {
+        int v = k % NVECTORS;
+
         if (v == VEC_TIMER && ptr->int_enabled == false) { continue; }
 
         if (!(ptr->pending & (1u << v))) { continue; }
