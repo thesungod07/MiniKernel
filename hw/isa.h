@@ -25,9 +25,9 @@ enum opcodes //Assigning opcodes 0-15 for all the instructions (OP_COUNT is 16 -
 };
 
 #define ENC(op, ra, imm) \
-    ((((uint32_t)(op)) << 24) | \
-     (((uint32_t)(ra) & 0xFF)) << 16) | \
-     ((uint32_t)((imm) & 0xFFFF))
+    ((((uint32_t)(op) << 24) | \
+      (((uint32_t)(ra) & 0xFF) << 16) | \
+      ((uint32_t)(imm) & 0xFFFF)))
 
 //Wrappers for every instruction using ENC
 #define NOP() ENC(OP_NOP, 0, 0)

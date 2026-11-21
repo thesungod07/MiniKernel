@@ -4,8 +4,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "../hw/cpu.h"
+#include "kernel.h"
+#include <stddef.h>
 
 #define MAX_PROCS 16
+#define PROC_MEM_WORDS 240
 
 typedef enum
 {
@@ -37,5 +40,8 @@ typedef struct
 } pcb_t;
 
 extern pcb_t proc_table[MAX_PROCS];
+
+void proc_init(void);
+int proc_create(cpu_t *c, const uint32_t *image, size_t nwords, int priority, uint64_t burst);
 
 #endif
