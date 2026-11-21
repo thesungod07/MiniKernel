@@ -1,10 +1,11 @@
-#include <stdio.h>
 #include <string.h>
+#include <stdio.h>
 #include "sched.h"
 #include "../hw/isa.h"
 
 static const scheduler_t *sched;
 static uint64_t last_account;
+static uint64_t slice_used;
 static pcb_t idle_proc;
 
 static void account(cpu_t *c)
@@ -14,8 +15,9 @@ static void account(cpu_t *c)
 
     if (current_proc != NULL && current_proc->state == PROC_RUNNING)
     {
-        if (delta > current_proc->remaining_time) { current_proc->remaining_time = 0;}
-        else {current_proc->remaining_time -= delta;}
+        slice_used += delta;
+        if (delta > current_proc->remaining_time) { current_proc->remaining_time = 0; }
+        else { current_proc->remaining_time -= delta; }
     }
 }
 
@@ -57,6 +59,7 @@ static void run_next(cpu_t *c)
     if (next != current_proc)
     {
         context_switch(c, next);
+        slice_used = 0;
     }
 }
 
@@ -96,20 +99,65 @@ static void isr_sched_syscall(cpu_t *c, int vec)
     }
 }
 
-static pcb_t *pick_fcfs(void)
+/* ---------- scheduling algorithms ---------- */
+
+static uint64_t key_arrival(const pcb_t *p)   { return p->arrival_time; }
+static uint64_t key_burst(const pcb_t *p)     { return p->burst_time; }
+static uint64_t key_remaining(const pcb_t *p) { return p->remaining_time; }
+static uint64_t key_priority(const pcb_t *p)  { return (uint64_t)p->priority; }
+
+/* Among READY/RUNNING processes, pick the one with the smallest key.
+ * The running process wins ties, so equal keys never cause a preemption. */
+static pcb_t *pick_min(uint64_t (*key)(const pcb_t *))
 {
     pcb_t *best = NULL;
+
+    if (current_proc != NULL && current_proc->pid != 0 && current_proc->state == PROC_RUNNING)
+    {
+        best = current_proc;
+    }
 
     for (int i = 0; i < MAX_PROCS; i++)
     {
         pcb_t *p = &proc_table[i];
         if (p->state != PROC_READY && p->state != PROC_RUNNING) { continue; }
-        if (best == NULL || p->arrival_time < best->arrival_time) { best = p; }
+        if (best == NULL || key(p) < key(best)) { best = p; }
     }
     return best;
 }
 
-const scheduler_t sched_fcfs = { "FCFS", pick_fcfs, 0, 0 };
+static pcb_t *pick_fcfs(void) { return pick_min(key_arrival); }
+static pcb_t *pick_sjf(void)  { return pick_min(key_burst); }
+static pcb_t *pick_srtf(void) { return pick_min(key_remaining); }
+static pcb_t *pick_prio(void) { return pick_min(key_priority); }
+
+static pcb_t *pick_rr(void)
+{
+    if (current_proc != NULL && current_proc->pid != 0
+        && current_proc->state == PROC_RUNNING && slice_used < sched->quantum)
+    {
+        return current_proc;
+    }
+
+    int start = (current_proc != NULL && current_proc->pid != 0)
+                    ? (int)(current_proc - proc_table) : -1;
+
+    for (int k = 1; k <= MAX_PROCS; k++)
+    {
+        pcb_t *p = &proc_table[(start + k) % MAX_PROCS];
+        if (p->state == PROC_READY || p->state == PROC_RUNNING) { return p; }
+    }
+    return NULL;
+}
+
+const scheduler_t sched_fcfs   = { "FCFS",               pick_fcfs, 0, 0 };
+const scheduler_t sched_sjf    = { "SJF",                pick_sjf,  0, 0 };
+const scheduler_t sched_srtf   = { "SRTF",               pick_srtf, 1, 0 };
+const scheduler_t sched_prio   = { "Priority",           pick_prio, 0, 0 };
+const scheduler_t sched_prio_p = { "Priority (preempt)", pick_prio, 1, 0 };
+const scheduler_t sched_rr     = { "RR",                 pick_rr,   1, 4 };
+
+/* ---------- setup ---------- */
 
 void sched_init(cpu_t *c, const scheduler_t *s)
 {
@@ -131,6 +179,7 @@ void sched_init(cpu_t *c, const scheduler_t *s)
 void sched_start(cpu_t *c)
 {
     last_account = c->cycles;
+    slice_used = 0;
     current_proc = NULL;
     admit(c);
     run_next(c);
