@@ -14,11 +14,28 @@ void cpu_raise(cpu_t *ptr, int vec)
     ptr->pending |= (1u << vec);
 }
 
+static bool translate(const cpu_t *c, uint32_t logical, uint32_t *physical)
+{
+    if (c->mode == MODE_KERNEL)
+    {
+        if (logical < RAM_WORDS) { *physical = logical; return true; }
+        return false;
+    }
+    if (logical < c->limit && (c->base + logical) < RAM_WORDS)
+    {
+        *physical = c->base + logical;
+        return true;
+    }
+    return false;
+}
+
 static bool is_privileged(uint32_t op)
 {
     return (op == OP_HLT || op == OP_CLI || op == OP_STI);
 }
 
+/* Deliver at most one pending interrupt. Traps (vectors 1..) come first and
+ * the timer (vector 0) last, so a trap is never overtaken by a tick. */
 static void dispatch(cpu_t *ptr)
 {
     for (int k = 1; k <= NVECTORS; k++)
@@ -26,9 +43,8 @@ static void dispatch(cpu_t *ptr)
         int v = k % NVECTORS;
 
         if (v == VEC_TIMER && ptr->int_enabled == false) { continue; }
-
         if (!(ptr->pending & (1u << v))) { continue; }
-        
+
         ptr->pending &= ~(1u << v);
         ptr->irq_count[v]++;
 
@@ -51,32 +67,7 @@ static void dispatch(cpu_t *ptr)
         ptr->pc = ptr->saved_pc;
         ptr->mode = ptr->saved_mode;
         ptr->int_enabled = ptr->saved_int;
-
         return;
-    }
-}
-
-static bool translate(const cpu_t *c, uint32_t logical, uint32_t *physical)
-{
-    if (c->mode == MODE_KERNEL)
-    {
-        if (logical < RAM_WORDS)
-        {
-            *physical = logical;
-            return true;
-        }
-
-        return false;
-    }
-    else
-    {
-        if (logical < c->limit && (c->base + logical) < RAM_WORDS)
-        {
-            *physical = c->base + logical;
-            return true;
-        }
-
-        return false;
     }
 }
 
@@ -84,10 +75,7 @@ bool cpu_step(cpu_t *ptr)
 {
     uint32_t phys;
 
-    if (ptr->halted == true)
-    {
-        return false;
-    }
+    if (ptr->halted) { return false; }
 
     if (!translate(ptr, ptr->pc, &phys))
     {
@@ -98,20 +86,23 @@ bool cpu_step(cpu_t *ptr)
     }
 
     uint32_t old_pc = ptr->pc;
-    uint32_t local = ptr->ram[phys];
+    uint32_t word = ptr->ram[phys];
     ptr->pc += 1;
 
-    uint32_t op = local >> 24;
-    uint32_t ra = (local >> 16) & 0xFF;
-    uint32_t imm = local & 0xFFFF;
+    uint32_t op = word >> 24;
+    uint32_t ra = (word >> 16) & 0xFF;
+    uint32_t imm = word & 0xFFFF;
     uint32_t rb = imm & 0xFF;
 
-    if (ptr->trace == true)
+    if (ptr->trace)
     {
-        printf("pc = %u, word = 0x%08x, op = %u, ra = %u, imm = %u, rb = %u\n", old_pc, local, op, ra, imm, rb);
+        printf("pc = %u, word = 0x%08x, op = %u, ra = %u, imm = %u, rb = %u\n", old_pc, word, op, ra, imm, rb);
     }
 
     ptr->cycles += 1;
+
+    bool uses_ra = (op == OP_LDI || op == OP_LD || op == OP_ST || (op >= OP_MOV && op <= OP_CMP));
+    bool uses_rb = (op >= OP_MOV && op <= OP_CMP);
 
     if (op >= OP_COUNT)
     {
@@ -121,89 +112,43 @@ bool cpu_step(cpu_t *ptr)
     {
         cpu_raise(ptr, VEC_PRIV_FAULT);
     }
+    else if ((uses_ra && ra >= NREGS) || (uses_rb && rb >= NREGS))
+    {
+        cpu_raise(ptr, VEC_ILLEGAL);
+    }
     else
     {
         switch (op)
         {
-            case OP_NOP:
-                break;
-
-            case OP_LDI:
-                if (ra >= NREGS) { cpu_raise(ptr, VEC_ILLEGAL); break; }
-                ptr->reg[ra] = imm;
-                break;
-
-            case OP_MOV:
-                if (ra >= NREGS || rb >= NREGS) { cpu_raise(ptr, VEC_ILLEGAL); break; }
-                ptr->reg[ra] = ptr->reg[rb];
-                break;
-
-            case OP_ADD:
-                if (ra >= NREGS || rb >= NREGS) { cpu_raise(ptr, VEC_ILLEGAL); break; }
-                ptr->reg[ra] += ptr->reg[rb];
-                break;
-
-            case OP_SUB:
-                if (ra >= NREGS || rb >= NREGS) { cpu_raise(ptr, VEC_ILLEGAL); break; }
-                ptr->reg[ra] -= ptr->reg[rb];
-                break;
-
-            case OP_MUL:
-                if (ra >= NREGS || rb >= NREGS) { cpu_raise(ptr, VEC_ILLEGAL); break; }
-                ptr->reg[ra] *= ptr->reg[rb];
-                break;
-
-            case OP_CMP:
-                if (ra >= NREGS || rb >= NREGS) { cpu_raise(ptr, VEC_ILLEGAL); break; }
-                ptr->zf = (ptr->reg[ra] == ptr->reg[rb]);
-                break;
-
-            case OP_JMP:
-                ptr->pc = imm;
-                break;
-
-            case OP_JZ:
-                if (ptr->zf) { ptr->pc = imm; }
-                break;
-
-            case OP_JNZ:
-                if (!ptr->zf) { ptr->pc = imm; }
-                break;
-
+            case OP_NOP: break;
+            case OP_LDI: ptr->reg[ra] = imm; break;
+            case OP_MOV: ptr->reg[ra] = ptr->reg[rb]; break;
+            case OP_ADD: ptr->reg[ra] += ptr->reg[rb]; break;
+            case OP_SUB: ptr->reg[ra] -= ptr->reg[rb]; break;
+            case OP_MUL: ptr->reg[ra] *= ptr->reg[rb]; break;
+            case OP_CMP: ptr->zf = (ptr->reg[ra] == ptr->reg[rb]); break;
+            case OP_JMP: ptr->pc = imm; break;
+            case OP_JZ:  if (ptr->zf)  { ptr->pc = imm; } break;
+            case OP_JNZ: if (!ptr->zf) { ptr->pc = imm; } break;
             case OP_LD:
-                if (ra >= NREGS) { cpu_raise(ptr, VEC_ILLEGAL); break; }
                 if (!translate(ptr, imm, &phys)) { cpu_raise(ptr, VEC_MEM_FAULT); break; }
                 ptr->reg[ra] = ptr->ram[phys];
                 break;
-
             case OP_ST:
-                if (ra >= NREGS) { cpu_raise(ptr, VEC_ILLEGAL); break; }
                 if (!translate(ptr, imm, &phys)) { cpu_raise(ptr, VEC_MEM_FAULT); break; }
                 ptr->ram[phys] = ptr->reg[ra];
                 break;
-
-            case OP_HLT:
-                ptr->halted = true;
-                break;
-
-            case OP_SYSCALL:
-                cpu_raise(ptr, VEC_SYSCALL);
-                break;
-
-            case OP_CLI:
-                ptr->int_enabled = false;
-                break;
-            case OP_STI:
-                ptr->int_enabled = true;
-                break;
+            case OP_SYSCALL: cpu_raise(ptr, VEC_SYSCALL); break;
+            case OP_HLT: ptr->halted = true; break;
+            case OP_CLI: ptr->int_enabled = false; break;
+            case OP_STI: ptr->int_enabled = true; break;
         }
     }
 
     if (ptr->timer_period != 0)
     {
         ptr->timer_count++;
-
-        if (ptr->timer_count == ptr->timer_period)
+        if (ptr->timer_count >= ptr->timer_period)
         {
             ptr->timer_count = 0;
             cpu_raise(ptr, VEC_TIMER);
@@ -211,7 +156,6 @@ bool cpu_step(cpu_t *ptr)
     }
 
     dispatch(ptr);
-
     return true;
 }
 

@@ -7,21 +7,20 @@ static int next_pid;
 
 void proc_init(void)
 {
-    memset(&proc_table, 0, sizeof(proc_table));
+    memset(proc_table, 0, sizeof(proc_table));
     next_pid = 1;
+    current_proc = NULL;
 }
 
 int proc_create(cpu_t *c, const uint32_t *image, size_t nwords, int priority, uint64_t burst)
 {
     if (nwords > PROC_MEM_WORDS) { return -1; }
-    
-    int index = -1;
 
+    int index = -1;
     for (int i = 0; i < MAX_PROCS; i++)
     {
         if (proc_table[i].state == PROC_UNUSED) { index = i; break; }
     }
-
     if (index == -1) { return -1; }
 
     uint32_t base = USER_BASE + (index * PROC_MEM_WORDS);
@@ -29,22 +28,22 @@ int proc_create(cpu_t *c, const uint32_t *image, size_t nwords, int priority, ui
     memset(&c->ram[base], 0, PROC_MEM_WORDS * sizeof(uint32_t));
     memcpy(&c->ram[base], image, nwords * sizeof(uint32_t));
 
-    memset(&proc_table[index], 0, sizeof(pcb_t));
-    
-    proc_table[index].pid = next_pid;
+    pcb_t *p = &proc_table[index];
+    memset(p, 0, sizeof(*p));
+
+    p->pid = next_pid;
     next_pid++;
+    p->parent_pid = -1;
+    p->state = PROC_READY;
+    p->base = base;
+    p->limit = PROC_MEM_WORDS;
+    p->priority = priority;
+    p->arrival_time = c->cycles;
+    p->burst_time = burst;
+    p->remaining_time = burst;
+    p->first_run_time = -1;
 
-    proc_table[index].parent_pid = -1;
-    proc_table[index].state = PROC_READY;
-    proc_table[index].base = base;
-    proc_table[index].limit = PROC_MEM_WORDS;
-    proc_table[index].priority = priority;
-    proc_table[index].arrival_time = c->cycles;
-    proc_table[index].burst_time = burst;
-    proc_table[index].remaining_time = burst;
-    proc_table[index].first_run_time = -1;
-
-    return proc_table[index].pid;
+    return p->pid;
 }
 
 void context_save(cpu_t *c, pcb_t *p)
@@ -58,10 +57,8 @@ void context_load(cpu_t *c, pcb_t *p)
 {
     for (int i = 0; i < NREGS; i++) { c->reg[i] = p->reg[i]; }
     c->zf = p->zf;
-
     c->base = p->base;
     c->limit = p->limit;
-
     c->saved_pc = p->pc;
     c->saved_mode = MODE_USER;
     c->saved_int = true;

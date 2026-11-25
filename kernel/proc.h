@@ -1,24 +1,14 @@
 #ifndef PROC_H
 #define PROC_H
-
 #include <stdint.h>
 #include <stdbool.h>
-#include "../hw/cpu.h"
-#include "kernel.h"
 #include <stddef.h>
+#include "kernel.h"
 
 #define MAX_PROCS 16
 #define PROC_MEM_WORDS 240
 
-typedef enum
-{
-    PROC_UNUSED,
-    PROC_NEW,
-    PROC_READY,
-    PROC_RUNNING,
-    PROC_WAITING,
-    PROC_TERMINATED
-} proc_state_t;
+typedef enum { PROC_UNUSED, PROC_NEW, PROC_READY, PROC_RUNNING, PROC_WAITING, PROC_TERMINATED } proc_state_t;
 
 typedef struct
 {
@@ -41,11 +31,10 @@ typedef struct
 
 extern pcb_t proc_table[MAX_PROCS];
 extern pcb_t *current_proc;
-void context_save(cpu_t *c, pcb_t *p);
-void context_load(cpu_t *c, pcb_t *p);
-void context_switch(cpu_t *c, pcb_t *to);
 
 void proc_init(void);
 int proc_create(cpu_t *c, const uint32_t *image, size_t nwords, int priority, uint64_t burst);
-
+void context_save(cpu_t *c, pcb_t *p);
+void context_load(cpu_t *c, pcb_t *p);
+void context_switch(cpu_t *c, pcb_t *to);
 #endif
